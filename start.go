@@ -2,7 +2,7 @@ package grpcserver
 
 import (
 	"context"
-	"go.uber.org/zap"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"net"
@@ -14,13 +14,13 @@ import (
 
 type Register func(srv *grpc.Server)
 
-func Start(ctx context.Context, lis net.Listener, fn Register, logger *zap.Logger, opts ...grpc.ServerOption) {
+func Start(ctx context.Context, lis net.Listener, fn Register, log logrus.FieldLogger, opts ...grpc.ServerOption) {
 	appCtx, stop := signal.NotifyContext(ctx, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
 	defer stop()
 
 	g, ctx := errgroup.WithContext(appCtx)
 
-	srv := NewWithDefaultInterceptors(ctx, lis, logger, opts...)
+	srv := New(ctx, lis, log, opts...)
 
 	fn(srv.Server())
 
@@ -28,9 +28,9 @@ func Start(ctx context.Context, lis net.Listener, fn Register, logger *zap.Logge
 
 	go func() {
 		if err := g.Wait(); err != nil {
-			logger.Fatal("Unexpected error", zap.Error(err))
+			log.WithField("error", err).Fatal("unexpected error")
 		}
-		logger.Info("Goodbye.....")
+		log.Info("goodbye.....")
 		os.Exit(0)
 	}()
 
@@ -40,9 +40,9 @@ func Start(ctx context.Context, lis net.Listener, fn Register, logger *zap.Logge
 	// notify user of shutdown
 	switch ctx.Err() {
 	case context.DeadlineExceeded:
-		logger.Info("Shutting down gracefully, press Ctrl+C again to force", zap.String("cause", "timeout"))
+		log.WithField("cause", "timeout").Info("shutting down gracefully, press Ctrl+C again to force")
 	case context.Canceled:
-		logger.Info("Shutting down gracefully, press Ctrl+C again to force", zap.String("cause", "interrupt"))
+		log.WithField("cause", "interrupt").Info("shutting down gracefully, press Ctrl+C again to force")
 	}
 
 	// Restore default behavior on the interrupt signal.
@@ -54,7 +54,7 @@ func Start(ctx context.Context, lis net.Listener, fn Register, logger *zap.Logge
 
 	// force termination after shutdown timeout
 	<-timeoutCtx.Done()
-	logger.Error("Shutdown grace period elapsed. Force exit...")
+	log.Error("shutdown grace period elapsed. Force exit...")
 	// force stop any daemon services here:
 	srv.Stop()
 	os.Exit(1)

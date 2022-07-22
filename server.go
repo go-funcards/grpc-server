@@ -2,9 +2,7 @@ package grpcserver
 
 import (
 	"context"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
-	"github.com/grpc-ecosystem/go-grpc-middleware/recovery"
-	"go.uber.org/zap"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -25,33 +23,16 @@ type Server interface {
 type server struct {
 	ctx  context.Context
 	lis  net.Listener
-	log  *zap.Logger
+	log  logrus.FieldLogger
 	gSrv *grpc.Server
 	hSrv *health.Server
 }
 
-func NewWithDefaultInterceptors(ctx context.Context, listener net.Listener, logger *zap.Logger, opts ...grpc.ServerOption) *server {
-	opts = append([]grpc.ServerOption{
-		grpc.ChainStreamInterceptor(
-			grpc_recovery.StreamServerInterceptor(),
-			grpc_zap.StreamServerInterceptor(logger),
-			ErrorStreamServerInterceptor(logger),
-		),
-		grpc.ChainUnaryInterceptor(
-			grpc_recovery.UnaryServerInterceptor(),
-			grpc_zap.UnaryServerInterceptor(logger),
-			ErrorUnaryServerInterceptor(logger),
-		),
-	}, opts...)
-
-	return New(ctx, listener, logger, opts...)
-}
-
-func New(ctx context.Context, listener net.Listener, logger *zap.Logger, opts ...grpc.ServerOption) *server {
+func New(ctx context.Context, listener net.Listener, log logrus.FieldLogger, opts ...grpc.ServerOption) *server {
 	return &server{
 		ctx:  ctx,
 		lis:  listener,
-		log:  logger,
+		log:  log,
 		gSrv: grpc.NewServer(opts...),
 	}
 }
@@ -90,15 +71,15 @@ func (s *server) Start() error {
 		// log situation
 		switch ctx.Err() {
 		case context.DeadlineExceeded:
-			s.log.Debug("Context timeout exceeded")
+			s.log.Debug("context timeout exceeded")
 		case context.Canceled:
-			s.log.Debug("Context cancelled by interrupt signal")
+			s.log.Debug("context cancelled by interrupt signal")
 		}
 
 		// Gracefully stop healthServer
 		s.hSrv.Shutdown()
 
-		s.log.Info("Stopping grpc server...")
+		s.log.Info("stopping grpc server...")
 
 		// Gracefully stop server
 		s.gSrv.GracefulStop()
